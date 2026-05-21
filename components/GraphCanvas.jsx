@@ -42,6 +42,7 @@ const GraphCanvas = () => {
   const [forceAlgoMode, setForceAlgoMode] = useState('idle'); // 'idle', 'config', 'running', 'paused', 'finished'
   const [forceHistory, setForceHistory] = useState([]);
   const [forceStep, setForceStep] = useState(0);
+  const [jumpSize, setJumpSize] = useState(10);
   const [forceConfig, setForceConfig] = useState({
     cRep: 4000,
     cSpring: 0.35,
@@ -656,8 +657,10 @@ const GraphCanvas = () => {
         const magnitude = Math.sqrt(force.x * force.x + force.y * force.y);
         maxForceMagnitude = Math.max(maxForceMagnitude, magnitude);
 
-        let vx = (v.vx + force.x) * forceConfig.damping;
-        let vy = (v.vy + force.y) * forceConfig.damping;
+        let dampedForceX = force.x * forceConfig.damping;
+        let dampedForceY = force.y * forceConfig.damping;
+        let vx = v.vx + dampedForceX;
+        let vy = v.vy + dampedForceY;
         let x = Math.max(VERTEX_RADIUS, Math.min(CANVAS_WIDTH - VERTEX_RADIUS, v.x + vx));
         let y = Math.max(VERTEX_RADIUS, Math.min(CANVAS_HEIGHT - VERTEX_RADIUS, v.y + vy));
 
@@ -995,12 +998,20 @@ const GraphCanvas = () => {
                   <button onClick={() => setForceAlgoMode('running')} style={{...styles.btnAction, backgroundColor: forceAlgoMode==='running'?'#34c759':'#334155', color: '#fff', flex: 1}}>▶️ Play</button>
                   <button onClick={() => setForceAlgoMode('paused')} style={{...styles.btnAction, backgroundColor: forceAlgoMode==='paused'?'#6366f1':'#334155', color: '#fff', flex: 1}}>⏸️ Pause</button>
                 </div>
-                <div style={{display: 'flex', gap: '5px'}}>
-                  <button onClick={() => setForceStep(Math.max(0, forceStep-1))} disabled={forceStep === 0} style={{...styles.btnAction, opacity: forceStep===0?0.5:1}}>⏮️ Prev</button>
-                  <button onClick={() => setForceStep(Math.min(forceHistory.length-1, forceStep+1))} disabled={forceStep === forceHistory.length-1} style={{...styles.btnAction, opacity: forceStep===forceHistory.length-1?0.5:1}}>Next ⏭️</button>
+                <div style={{display: 'flex', gap: '8px', alignItems: 'center', justifyContent: 'center', margin: '5px 0'}}>
+                  <span style={{fontSize: '11px', color: '#94a3b8'}}>Jump Size:</span>
+                  <input 
+                    type="number" 
+                    value={jumpSize} 
+                    onChange={(e) => setJumpSize(Math.max(1, Number(e.target.value)))} 
+                    style={{width: '50px', backgroundColor: '#0f172a', color: '#fff', border: '1px solid #475569', padding: '2px', textAlign: 'center'}}
+                  />
                 </div>
-                <button onClick={() => { setForceStep(Math.max(0, forceHistory.length-1)); setForceAlgoMode('finished'); }} style={styles.btnAction}>⏭️ Skip to End</button>
-                
+                <div style={{display: 'flex', gap: '5px'}}>
+                  <button onClick={() => setForceStep(Math.max(0, forceStep - jumpSize))} style={styles.btnAction}>⏮️ Prev</button>
+                  <button onClick={() => setForceStep(Math.min(forceHistory.length - 1, forceStep + jumpSize))} style={styles.btnAction}>Next ⏭️</button>
+                </div>
+                <button onClick={() => { setForceStep(Math.max(0, forceHistory.length - 1)); setForceAlgoMode('finished'); }} style={styles.btnAction}>⏭️ Skip to End</button>
                 <button onClick={() => { 
                   if (forceHistory.length > 0) {
                     setVertices(forceHistory[forceStep]); 
