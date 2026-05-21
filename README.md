@@ -23,12 +23,10 @@ A highly interactive, full-stack React application designed to visualize and tea
 * **Tree Export:** Once the algorithm finishes, instantly export the resulting BFS Tree as a strict Matrix or List.
 
 ### ➡️ Force-Directed Layout Engine
-* **Custom Engine:** Implements the Fruchterman–Reingold force-directed graph layout algorithm to automatically untangle overlapping graphs.
-* **Auto-Stabilization:** Automatically shakes the nodes to break free of messy tangles, smoothly decelerating them until the graph finds its perfect resting state.
-* **Live Sandbox Controls:** Slide the controls to dynamically manipulate:
-  * **Repulsion:** Coulomb's Law (Magnets) pushing nodes apart.
-  * **Attraction:** Hooke's Law (Springs) pulling edges together.
-  * **Edge Length:** The resting distance between vertices.
+* **Force Model:** Each iteration computes a displacement vector $F_u$ per node as the sum of repulsive forces $f_\text{rep}(u,v) = c_\text{rep} / \|p_v - p_u\|^2$ from all other nodes, and attractive forces $f_\text{attr}(u,v) = f_\text{spring}(u,v) - f_\text{rep}(u,v)$ along each edge, where $f_\text{spring}(u,v) = c_\text{spring} \cdot \log(\|p_v - p_u\| / \ell)$.
+* **Velocity-Damping Convergence:** Nodes accumulate velocity each iteration, decayed by a damping factor, until the max force magnitude falls below an epsilon threshold or the iteration cap is hit.
+* **Frame-by-Frame Playback:** The full simulation is pre-computed into a history of snapshots which you can play, pause, or move through step by step.
+* **Configurable Parameters:** Tune Repulsion ($c_\text{rep}$), Spring stiffness ($c_\text{spring}$), Ideal Edge Length ($\ell$), Damping, and Max Iterations before running.
 
 ## ➡️ Tech Stack
 * **Framework:** React / Next.js

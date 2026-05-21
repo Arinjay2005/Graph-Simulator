@@ -7,6 +7,7 @@ const GraphCanvas = () => {
   // App Modes & Settings
   const [mode, setMode] = useState('draw'); 
   const [isWeighted, setIsWeighted] = useState(false); 
+  const [isSimulating, setIsSimulating] = useState(false);
   
   // State for the Weight Input Modal
   const [pendingEdge, setPendingEdge] = useState(null);
@@ -31,142 +32,51 @@ const GraphCanvas = () => {
   const [listInput, setListInput] = useState('');
   const [error, setError] = useState('');
 
-  // --- ALGORITHM STATES ---
-  const [algoMode, setAlgoMode] = useState('idle'); 
+  // --- BFS ALGORITHM STATE ---
+  const [algoMode, setAlgoMode] = useState('idle'); // 'idle', 'running', 'paused', 'finished'
   const [algoHistory, setAlgoHistory] = useState([]);
   const [algoStep, setAlgoStep] = useState(0);
   const [bfsStartNode, setBfsStartNode] = useState('1');
-  
-  // --- MILESTONE 3: FORCE-DIRECTED LAYOUT STATE ---
-  const [isPhysicsOpen, setIsPhysicsOpen] = useState(false); // Toggles the UI panel
-  const [isLayoutRunning, setIsLayoutRunning] = useState(false); // Toggles the actual physics engine
-  const [fdSettings, setFdSettings] = useState({
-    repulsion: 1.0,
-    attraction: 1.0,
-    idealLength: 0.4
+
+  // --- FORCE LAYOUT STATE ---
+  const [forceAlgoMode, setForceAlgoMode] = useState('idle'); // 'idle', 'config', 'running', 'paused', 'finished'
+  const [forceHistory, setForceHistory] = useState([]);
+  const [forceStep, setForceStep] = useState(0);
+  const [forceConfig, setForceConfig] = useState({
+    cRep: 4000,
+    cSpring: 0.35,
+    idealLength: 120,
+    damping: 0.85,
+    epsilon: 0.1,
+    maxIterations: 500
   });
 
   const VERTEX_RADIUS = 18;
   const CANVAS_WIDTH = 800;
   const CANVAS_HEIGHT = 600;
 
-  // =========================================================
-  // MILESTONE 3: FORCE-DIRECTED PHYSICS ENGINE
-  // =========================================================
-  useEffect(() => {
-    // We only need at least 2 vertices to run physics
-    if (!isLayoutRunning || vertices.length < 2) return;
-
-    const AREA = CANVAS_WIDTH * CANVAS_HEIGHT;
-    // 'k' represents the ideal resting distance between nodes
-    const k = Math.sqrt(AREA / vertices.length) * fdSettings.idealLength; 
-    
-    // Temperature controls how much nodes can move per frame. 
-    // It resets to a high value whenever a slider is dragged (re-heating)
-    let temperature = CANVAS_WIDTH / 10; 
-
-    const timer = setInterval(() => {
-      setVertices(prevVertices => {
-        const newVertices = prevVertices.map(v => ({ ...v, dx: 0, dy: 0 }));
-
-        // 1. REPULSIVE FORCES (Magnets)
-        for (let i = 0; i < newVertices.length; i++) {
-          for (let j = i + 1; j < newVertices.length; j++) {
-            const v = newVertices[i];
-            const u = newVertices[j];
-            const deltaX = v.x - u.x;
-            const deltaY = v.y - u.y;
-            let distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY) || 1; 
-            
-            const force = fdSettings.repulsion * (k * k) / distance;
-            const offsetX = (deltaX / distance) * force;
-            const offsetY = (deltaY / distance) * force;
-            
-            v.dx += offsetX;
-            v.dy += offsetY;
-            u.dx -= offsetX;
-            u.dy -= offsetY;
-          }
-        }
-
-        // 2. ATTRACTIVE FORCES (Springs)
-        edges.forEach(edge => {
-          const vIndex = newVertices.findIndex(v => v.id === edge.source);
-          const uIndex = newVertices.findIndex(v => v.id === edge.target);
-          if (vIndex > -1 && uIndex > -1) {
-            const v = newVertices[vIndex];
-            const u = newVertices[uIndex];
-            const deltaX = v.x - u.x;
-            const deltaY = v.y - u.y;
-            let distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY) || 1;
-            
-            const force = fdSettings.attraction * (distance * distance) / k;
-            const offsetX = (deltaX / distance) * force;
-            const offsetY = (deltaY / distance) * force;
-            
-            v.dx -= offsetX;
-            v.dy -= offsetY;
-            u.dx += offsetX;
-            u.dy += offsetY;
-          }
-        });
-
-        // 3. GRAVITY (Gently pull everything toward the center)
-        const centerX = CANVAS_WIDTH / 2;
-        const centerY = CANVAS_HEIGHT / 2;
-        newVertices.forEach(v => {
-          const deltaX = centerX - v.x;
-          const deltaY = centerY - v.y;
-          let distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY) || 1;
-          const force = distance * 0.05; 
-          v.dx += (deltaX / distance) * force;
-          v.dy += (deltaY / distance) * force;
-        });
-
-        // 4. APPLY MOVEMENTS & BOUNDARY COLLISION
-        const movedVertices = newVertices.map(v => {
-          const dist = Math.sqrt(v.dx * v.dx + v.dy * v.dy) || 1;
-          // Apply temperature to the maximum movement allowed
-          const maxMove = temperature;
-          const moveX = (v.dx / dist) * Math.min(dist, maxMove);
-          const moveY = (v.dy / dist) * Math.min(dist, maxMove);
-          
-          const newX = Math.max(VERTEX_RADIUS + 20, Math.min(CANVAS_WIDTH - VERTEX_RADIUS - 20, v.x + moveX));
-          const newY = Math.max(VERTEX_RADIUS + 20, Math.min(CANVAS_HEIGHT - VERTEX_RADIUS - 20, v.y + moveY));
-          
-          return { id: v.id, x: newX, y: newY };
-        });
-
-        return movedVertices;
-      });
-
-      // 5. COOL DOWN (Simulated Annealing)
-      temperature *= 0.95; 
-      
-      // Stop the simulation automatically when the graph "freezes"
-      if (temperature < 0.5) {
-        setIsLayoutRunning(false);
-      }
-    }, 30); 
-
-    return () => clearInterval(timer);
-    
-    // By passing fdSettings here, dragging a slider automatically re-triggers the effect, 
-    // resetting the temperature and making the graph dynamically "breathe" in real-time.
-  }, [isLayoutRunning, edges, fdSettings, vertices.length]);
-
+  // --- ALGORITHM LOCK ---
+  const enforceIdleMode = () => {
+    if (algoMode !== 'idle') {
+      setError("Please exit the BFS algorithm first.");
+      return false;
+    }
+    if (forceAlgoMode !== 'idle') {
+      setError("Please exit the Force Directed algorithm first.");
+      return false;
+    }
+    return true;
+  };
 
   // --- BFS ALGORITHM ENGINE ---
   const runBFS = () => {
+    if (!enforceIdleMode()) return;
+
     const startId = parseInt(bfsStartNode, 10);
     if (!vertices.some(v => v.id === startId)) {
       setError(`Node ${startId} does not exist in the graph.`);
       return;
     }
-
-    // Ensure physics is closed and stopped if starting BFS
-    setIsPhysicsOpen(false);
-    setIsLayoutRunning(false);
 
     const adj = {};
     vertices.forEach(v => adj[v.id] = []);
@@ -270,7 +180,7 @@ const GraphCanvas = () => {
     setAlgoMode('paused'); 
   };
 
-  // --- ALGORITHM PLAYBACK ---
+  // --- BFS ALGORITHM PLAYBACK ---
   useEffect(() => {
     let timer;
     if (algoMode === 'running') {
@@ -287,8 +197,25 @@ const GraphCanvas = () => {
     return () => clearInterval(timer);
   }, [algoMode, algoHistory]);
 
+  // --- FORCE ALGORITHM PLAYBACK ---
+  useEffect(() => {
+    let timer;
+    if (forceAlgoMode === 'running') {
+      timer = setInterval(() => {
+        setForceStep(prev => {
+          if (prev >= forceHistory.length - 1) {
+            setForceAlgoMode('finished');
+            return prev;
+          }
+          return prev + 1; 
+        });
+      }, 60); 
+    }
+    return () => clearInterval(timer);
+  }, [forceAlgoMode, forceHistory]);
 
   const handleToggleWeighted = (weighted) => {
+    if (!enforceIdleMode()) return;
     setIsWeighted(weighted);
     if (!weighted) {
       setEdges(edges.map(e => ({ ...e, weight: 1 })));
@@ -345,7 +272,6 @@ const GraphCanvas = () => {
 
   // --- DUAL RENDER ENGINE ---
   useEffect(() => {
-    // 1. Render Main Canvas
     const canvas = canvasRef.current;
     if (canvas) {
       const ctx = canvas.getContext('2d');
@@ -359,12 +285,14 @@ const GraphCanvas = () => {
       if (algoMode !== 'idle' && currentAlgoState) {
          renderVertices = vertices.filter(v => currentAlgoState.discovered.has(v.id));
          renderEdges = currentAlgoState.treeEdges;
+      } else if (forceAlgoMode !== 'idle' && forceAlgoMode !== 'config' && forceHistory.length > 0) {
+         renderVertices = forceHistory[forceStep];
       }
 
       ctx.lineWidth = 3;
       renderEdges.forEach(edge => {
-        const source = vertices.find(v => v.id === edge.source);
-        const target = vertices.find(v => v.id === edge.target);
+        const source = renderVertices.find(v => v.id === edge.source);
+        const target = renderVertices.find(v => v.id === edge.target);
         if (source && target) {
           ctx.beginPath();
           ctx.moveTo(source.x, source.y);
@@ -427,7 +355,7 @@ const GraphCanvas = () => {
       });
     }
 
-    // 2. Render Right Canvas
+    // Original Graph Traversal BFS
     const rightCanvas = rightCanvasRef.current;
     if (rightCanvas && algoMode !== 'idle') {
       const rightCtx = rightCanvas.getContext('2d');
@@ -505,7 +433,7 @@ const GraphCanvas = () => {
       });
     }
 
-  }, [vertices, edges, selectedVertexId, mode, isWeighted, algoHistory, algoStep, algoMode, isLayoutRunning]);
+  }, [vertices, edges, selectedVertexId, mode, isWeighted, algoHistory, algoStep, algoMode, forceAlgoMode, forceHistory, forceStep]);
 
   const pointToSegmentDistance = (px, py, x1, y1, x2, y2) => {
     const l2 = Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2);
@@ -518,7 +446,8 @@ const GraphCanvas = () => {
   };
 
   const handleCanvasClick = (e) => {
-    if (pendingEdge || algoMode !== 'idle' || isLayoutRunning) return;
+    if (pendingEdge) return;
+    if (!enforceIdleMode()) return;
 
     setError(''); 
     const canvas = canvasRef.current;
@@ -661,7 +590,94 @@ const GraphCanvas = () => {
     return newVertices;
   };
 
+  const runForceLayout = () => {
+    const vertexMap = new Map();
+    
+    let currentVertices = vertices.map(v => ({ ...v, vx: 0, vy: 0 }));
+    
+    const history = [];
+    history.push(currentVertices.map(v => ({...v})));
+
+    let iteration = 0;
+    let maxForceMagnitude = Infinity;
+
+    while (iteration < forceConfig.maxIterations && maxForceMagnitude > forceConfig.epsilon) {
+      const forces = new Map();
+      currentVertices.forEach(v => { forces.set(v.id, { x: 0, y: 0 }); });
+      currentVertices.forEach(v => { vertexMap.set(v.id, v); });
+
+      // Repulsive Forces
+      for (let i = 0; i < currentVertices.length; i++) {
+        for (let j = i + 1; j < currentVertices.length; j++) {
+          const u = currentVertices[i];
+          const v = currentVertices[j];
+          let dx = v.x - u.x;
+          let dy = v.y - u.y;
+          let dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist < 0.1) dist = 0.1;
+          const ux = dx / dist;
+          const uy = dy / dist;
+          
+          const repulsive = forceConfig.cRep / (dist * dist);
+          const fx = repulsive * ux;
+          const fy = repulsive * uy;
+
+          forces.get(u.id).x -= fx; forces.get(u.id).y -= fy;
+          forces.get(v.id).x += fx; forces.get(v.id).y += fy;
+        }
+      }
+
+      // Attractive Forces
+      edges.forEach(edge => {
+        const u = vertexMap.get(edge.source);
+        const v = vertexMap.get(edge.target);
+        if (!u || !v) return;
+
+        let dx = v.x - u.x;
+        let dy = v.y - u.y;
+        let dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < 0.1) dist = 0.1;
+        const ux = dx / dist;
+        const uy = dy / dist;
+
+        const springForce = forceConfig.cSpring * Math.log(dist / forceConfig.idealLength);
+        const repulsiveForce = forceConfig.cRep / (dist * dist);
+        const attractiveForce = springForce - repulsiveForce;
+        const fx = attractiveForce * ux;
+        const fy = attractiveForce * uy;
+
+        forces.get(u.id).x += fx; forces.get(u.id).y += fy;
+        forces.get(v.id).x -= fx; forces.get(v.id).y -= fy;
+      });
+
+      maxForceMagnitude = 0;
+      currentVertices = currentVertices.map(v => {
+        const force = forces.get(v.id);
+        const magnitude = Math.sqrt(force.x * force.x + force.y * force.y);
+        maxForceMagnitude = Math.max(maxForceMagnitude, magnitude);
+
+        let vx = (v.vx + force.x) * forceConfig.damping;
+        let vy = (v.vy + force.y) * forceConfig.damping;
+        let x = Math.max(VERTEX_RADIUS, Math.min(CANVAS_WIDTH - VERTEX_RADIUS, v.x + vx));
+        let y = Math.max(VERTEX_RADIUS, Math.min(CANVAS_HEIGHT - VERTEX_RADIUS, v.y + vy));
+
+        return { ...v, x, y, vx, vy };
+      });
+
+      history.push(currentVertices.map(v => ({...v})));
+      iteration++;
+    }
+
+    setForceHistory(history);
+    setForceStep(0);
+    setForceAlgoMode('paused'); 
+  };
+
   const handleFileUpload = (e, setInputState) => {
+    if (!enforceIdleMode()) {
+      e.target.value = null;
+      return;
+    }
     const file = e.target.files[0];
     if (!file) return;
     const reader = new FileReader();
@@ -733,6 +749,7 @@ const GraphCanvas = () => {
   };
 
   const handleMatrixSubmit = () => {
+    if (!enforceIdleMode()) return;
     try {
       if (!matrixInput.trim()) throw new Error("Matrix is empty.");
       const rows = matrixInput.trim().split('\n').filter(line => line.trim() !== '').map(row => row.trim().split(/\s+/).map(Number));
@@ -766,6 +783,7 @@ const GraphCanvas = () => {
   };
 
   const handleListSubmit = () => {
+    if (!enforceIdleMode()) return;
     try {
       if (!listInput.trim()) throw new Error("List is empty.");
       const lines = listInput.trim().split('\n').filter(line => line.trim() !== '');
@@ -816,41 +834,51 @@ const GraphCanvas = () => {
   };
 
   const handleClear = () => {
+    if (!enforceIdleMode()) return;
     setVertices([]); setEdges([]); setSelectedVertexId(null); setMatrixInput(''); setListInput(''); setError('');
-    setAlgoMode('idle'); setAlgoHistory([]); setAlgoStep(0); 
-    setIsLayoutRunning(false); setIsPhysicsOpen(false);
+    setAlgoMode('idle'); setAlgoHistory([]); setAlgoStep(0);
+    setForceAlgoMode('idle'); setForceHistory([]); setForceStep(0);
   };
 
   const styles = {
     container: { display: 'flex', gap: '20px', padding: '40px', fontFamily: '"Segoe UI", Roboto, sans-serif', backgroundColor: '#0f172a', color: '#eaeaea', minHeight: '100vh', justifyContent: 'center', position: 'relative' },
-    leftToolbar: { display: 'flex', flexDirection: 'column', gap: '10px', justifyContent: 'center', minWidth: '140px' },
+    leftToolbar: { display: 'flex', flexDirection: 'column', gap: '10px', justifyContent: 'center', minWidth: '130px' },
     algoPanel: { backgroundColor: '#1e293b', border: '2px solid #0a84ff', padding: '15px', borderRadius: '12px', marginTop: '10px', boxShadow: '0 4px 12px rgba(10, 132, 255, 0.2)' },
     toggleContainer: { backgroundColor: '#1e293b', borderRadius: '8px', padding: '5px', display: 'flex', gap: '5px', marginBottom: '5px', border: '1px solid #334155' },
     btnToggle: (isActive) => ({ flex: 1, padding: '10px', backgroundColor: isActive ? '#0a84ff' : 'transparent', color: isActive ? '#fff' : '#94a3b8', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }),
-    
-    // TOOL BUTTONS: Dynamically changes padding and font size based on if they are in the 2x2 grid or stacked
-    btnTool: (isActive) => ({ backgroundColor: isActive ? '#34c759' : '#1e293b', color: '#fff', border: isActive ? '2px solid #28a745' : '1px solid #334155', padding: isPhysicsOpen ? '8px' : '12px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', transition: 'all 0.2s', boxShadow: isActive ? '0 0 10px rgba(52, 199, 89, 0.4)' : 'none', fontSize: isPhysicsOpen ? '12px' : '14px' }),
-    
-    btnMagic: { backgroundColor: '#af52de', color: '#fff', border: '1px solid #9a48c4', padding: '8px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', transition: 'all 0.2s', boxShadow: isLayoutRunning ? '0 0 15px rgba(175, 82, 222, 0.6)' : 'none' },
+    btnTool: (isActive) => ({ backgroundColor: isActive ? '#34c759' : '#1e293b', color: '#fff', border: isActive ? '2px solid #28a745' : '1px solid #334155', padding: '12px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', transition: 'all 0.2s', boxShadow: isActive ? '0 0 10px rgba(52, 199, 89, 0.4)' : 'none' }),
     btnDanger: { backgroundColor: '#ff3b30', color: '#fff', border: 'none', padding: '12px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', marginTop: '10px' },
     mainArea: { display: 'flex', flexDirection: 'column' },
     title: { margin: '0 0 5px 0', fontSize: '28px', color: '#ffffff' },
     subtitle: { margin: '0 0 20px 0', color: '#94a3b8', fontSize: '15px' },
-    canvas: { border: 'none', borderRadius: '12px', cursor: (algoMode !== 'idle' || isLayoutRunning) ? 'not-allowed' : (mode === 'draw' ? 'crosshair' : 'pointer'), backgroundColor: '#ffffff', boxShadow: '0 8px 24px rgba(0,0,0,0.5)' },
+    canvas: { border: 'none', borderRadius: '12px', cursor: (algoMode !== 'idle' || forceAlgoMode !== 'idle') ? 'not-allowed' : (mode === 'draw' ? 'crosshair' : 'pointer'), backgroundColor: '#ffffff', boxShadow: '0 8px 24px rgba(0,0,0,0.5)' },
     
     statusBox: { backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '12px', padding: '15px', marginTop: '15px', display: 'flex', flexDirection: 'column', gap: '10px', minHeight: '80px' },
     queuePill: { backgroundColor: '#34d399', color: '#0f172a', padding: '4px 10px', borderRadius: '20px', fontWeight: 'bold', display: 'inline-block', marginRight: '5px' },
     activePill: { backgroundColor: '#ff9f0a', color: '#fff', padding: '4px 10px', borderRadius: '20px', fontWeight: 'bold', display: 'inline-block' },
 
-    rightCol: { display: 'flex', flexDirection: 'column', gap: '25px', width: algoMode === 'idle' ? '420px' : '500px', minWidth: algoMode === 'idle' ? '420px' : '500px', maxWidth: algoMode === 'idle' ? '420px' : '500px', transition: 'all 0.3s ease' },
+    rightCol: { 
+      display: 'flex', 
+      flexDirection: 'column', 
+      gap: '25px', 
+      width: (algoMode === 'idle' && forceAlgoMode === 'idle') ? '420px' : '500px',
+      minWidth: (algoMode === 'idle' && forceAlgoMode === 'idle') ? '420px' : '500px', 
+      maxWidth: (algoMode === 'idle' && forceAlgoMode === 'idle') ? '420px' : '500px',
+      transition: 'all 0.3s ease' 
+    },
+    
     panel: { backgroundColor: '#1e293b', padding: '25px', borderRadius: '12px', border: '1px solid #334155', boxShadow: '0 4px 12px rgba(0,0,0,0.3)', position: 'relative' },
     panelTitle: { margin: '0 0 5px 0', fontSize: '18px', color: '#ffffff', display: 'flex', alignItems: 'center', gap: '8px' },
+    
     textArea: { width: '100%', backgroundColor: '#0f172a', color: '#34d399', border: '1px solid #475569', borderRadius: '8px', padding: '12px', fontFamily: 'monospace', fontSize: '15px', resize: 'vertical', marginBottom: '15px', boxSizing: 'border-box', fontWeight: '500', whiteSpace: 'pre', overflowX: 'auto' },
-    btnPrimary: { backgroundColor: '#0a84ff', color: '#fff', border: 'none', padding: '12px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', width: '100%', fontSize: '15px' },
+    
+    btnPrimary: { backgroundColor: '#0a84ff', color: '#fff', border: 'none', padding: '12px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', width: '100%', fontSize: '15px', transition: 'all 0.2s' },
     btnAction: { backgroundColor: '#334155', color: '#fff', border: '1px solid #475569', padding: '8px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '13px', width: '100%' },
+    
     fileBtnCluster: { display: 'flex', gap: '8px', alignItems: 'center', position: 'absolute', top: '25px', right: '25px' },
     btnFile: { backgroundColor: '#334155', color: '#fff', border: '1px solid #475569', padding: '0 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: '600', height: '30px', display: 'flex', alignItems: 'center', justifyContent: 'center', boxSizing: 'border-box', whiteSpace: 'nowrap', gap: '6px' },
     hiddenInput: { display: 'none' },
+    
     headerRow: { marginBottom: '15px', paddingRight: '150px' },
     mappingLabel: { fontSize: '12px', color: '#94a3b8', marginTop: '4px', display: 'block' },
 
@@ -903,86 +931,94 @@ const GraphCanvas = () => {
           <button style={styles.btnToggle(isWeighted)} onClick={() => handleToggleWeighted(true)}>Weighted</button>
         </div>
 
-        {/* DYNAMIC TOOL GRID: Stacks normally, compacts to 2x2 if Physics is Open */}
-        {isPhysicsOpen ? (
-          <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px'}}>
-            <button style={styles.btnTool(mode === 'draw')} onClick={() => {setMode('draw'); setAlgoMode('idle');}}>✏️ Draw</button>
-            <button style={styles.btnTool(mode === 'deleteNode')} onClick={() => {setMode('deleteNode'); setAlgoMode('idle');}}>🗑️ Node</button>
-            <button style={styles.btnTool(mode === 'deleteEdge')} onClick={() => {setMode('deleteEdge'); setAlgoMode('idle');}}>✂️ Edge</button>
-            {isWeighted ? (
-              <button style={styles.btnTool(mode === 'editWeight')} onClick={() => {setMode('editWeight'); setAlgoMode('idle');}}>✍️ Weight</button>
-            ) : <div />}
-          </div>
-        ) : (
-          <>
-            <button style={styles.btnTool(mode === 'draw')} onClick={() => {setMode('draw'); setAlgoMode('idle');}}>✏️ Draw</button>
-            <button style={styles.btnTool(mode === 'deleteNode')} onClick={() => {setMode('deleteNode'); setAlgoMode('idle');}}>🗑️ Del Vertex</button>
-            <button style={styles.btnTool(mode === 'deleteEdge')} onClick={() => {setMode('deleteEdge'); setAlgoMode('idle');}}>✂️ Del Edge</button>
-            {isWeighted && (
-              <button style={styles.btnTool(mode === 'editWeight')} onClick={() => {setMode('editWeight'); setAlgoMode('idle');}}>✍️ Edit Weight</button>
-            )}
-          </>
+        <button style={styles.btnTool(mode === 'draw')} onClick={() => { if(enforceIdleMode()) setMode('draw'); }}>✏️ Draw</button>
+        <button style={styles.btnTool(mode === 'deleteNode')} onClick={() => { if(enforceIdleMode()) setMode('deleteNode'); }}>🗑️ Del Vertex</button>
+        <button style={styles.btnTool(mode === 'deleteEdge')} onClick={() => { if(enforceIdleMode()) setMode('deleteEdge'); }}>✂️ Del Edge</button>
+        
+        {isWeighted && (
+          <button style={styles.btnTool(mode === 'editWeight')} onClick={() => { if(enforceIdleMode()) setMode('editWeight'); }}>✍️ Edit Weight</button>
         )}
 
         <button onClick={handleClear} style={styles.btnDanger}>❌ Clear Data</button>
+        
+        <button 
+          onClick={() => { 
+            if (algoMode !== 'idle') {
+              setError("Please exit the BFS algorithm first.");
+              return;
+            }
 
-        {/* MILESTONE 3: FORCE DIRECTED PHYSICS PANEL */}
-        <div style={{...styles.algoPanel, borderColor: '#9a48c4'}}>
-          <h3 style={{margin: '0 0 10px 0', fontSize: '15px', color: '#af52de', textAlign: 'center'}}>Force Directed</h3>
-          
-          {!isPhysicsOpen ? (
-            <button 
-              style={{...styles.btnMagic, width: '100%', marginTop: 0}} 
-              onClick={() => setIsPhysicsOpen(true)}
-              disabled={algoMode !== 'idle'}
-            >
-              🌌 Open Algo
-            </button>
-          ) : (
-            <>
-              <div style={{display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '10px'}}>
-                <div>
-                  <label style={{fontSize: '11px', color: '#94a3b8', display: 'flex', justifyContent: 'space-between', marginBottom: '2px'}}>
-                    Repulsion <span>{fdSettings.repulsion.toFixed(1)}x</span>
-                  </label>
-                  <input type="range" min="0.1" max="3" step="0.1" value={fdSettings.repulsion} onChange={e => setFdSettings({...fdSettings, repulsion: parseFloat(e.target.value)})} style={{width: '100%', cursor: 'pointer'}} />
-                </div>
+            if (vertices.length === 0) {
+              setError("Cannot run Force Directed Algorithm on an empty graph.");
+              return;
+            }            
+            if (vertices.length === 1) {
+              setError("Force Directed Algorithm requires at least 2 vertices to simulate forces.");
+              return;
+            }
+            if (forceAlgoMode === 'idle') {
+              setForceAlgoMode('config'); setMode('draw');
+            }
+          }} 
+          style={{
+            ...styles.btnPrimary,
+            backgroundColor: forceAlgoMode !== 'idle' ? '#6366f1' : '#0a84ff',
+            color: '#fff',
+            marginTop: '15px',
+            boxShadow: forceAlgoMode !== 'idle' ? '0 0 12px rgba(99, 102, 241, 0.4)' : '0 4px 12px rgba(10, 132, 255, 0.3)'
+          }}>
+          Force Directed Algo
+        </button>
+
+        {/* FORCE ALGORITHM CONTROLS */}
+        {forceAlgoMode !== 'idle' && (
+          <div style={styles.algoPanel}>
+            <h3 style={{margin: '0 0 10px 0', fontSize: '15px', color: '#818cf8', textAlign: 'center'}}>Force Layout</h3>
+            
+            {forceAlgoMode === 'config' ? (
+              <div style={{display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '12px', color: '#94a3b8'}}>
+                <label style={{display: 'flex', justifyContent: 'space-between'}}>Repulsion: <input type="number" value={forceConfig.cRep} onChange={e => setForceConfig({...forceConfig, cRep: Number(e.target.value)})} style={{width: '50px', backgroundColor: '#0f172a', color: '#fff', border: '1px solid #475569'}}/></label>
+                <label style={{display: 'flex', justifyContent: 'space-between'}}>Spring: <input type="number" step="0.05" value={forceConfig.cSpring} onChange={e => setForceConfig({...forceConfig, cSpring: Number(e.target.value)})} style={{width: '50px', backgroundColor: '#0f172a', color: '#fff', border: '1px solid #475569'}}/></label>
+                <label style={{display: 'flex', justifyContent: 'space-between'}}>Ideal Len: <input type="number" value={forceConfig.idealLength} onChange={e => setForceConfig({...forceConfig, idealLength: Number(e.target.value)})} style={{width: '50px', backgroundColor: '#0f172a', color: '#fff', border: '1px solid #475569'}}/></label>
+                <label style={{display: 'flex', justifyContent: 'space-between'}}>Damping: <input type="number" step="0.05" value={forceConfig.damping} onChange={e => setForceConfig({...forceConfig, damping: Number(e.target.value)})} style={{width: '50px', backgroundColor: '#0f172a', color: '#fff', border: '1px solid #475569'}}/></label>
+                <label style={{display: 'flex', justifyContent: 'space-between'}}>Max Iters: <input type="number" value={forceConfig.maxIterations} onChange={e => setForceConfig({...forceConfig, maxIterations: Number(e.target.value)})} style={{width: '50px', backgroundColor: '#0f172a', color: '#fff', border: '1px solid #475569'}}/></label>
                 
-                <div>
-                  <label style={{fontSize: '11px', color: '#94a3b8', display: 'flex', justifyContent: 'space-between', marginBottom: '2px'}}>
-                    Attraction <span>{fdSettings.attraction.toFixed(1)}x</span>
-                  </label>
-                  <input type="range" min="0.1" max="3" step="0.1" value={fdSettings.attraction} onChange={e => setFdSettings({...fdSettings, attraction: parseFloat(e.target.value)})} style={{width: '100%', cursor: 'pointer'}} />
-                </div>
-                
-                <div>
-                  <label style={{fontSize: '11px', color: '#94a3b8', display: 'flex', justifyContent: 'space-between', marginBottom: '2px'}}>
-                    Edge Length <span>{Math.round(fdSettings.idealLength * 100)}%</span>
-                  </label>
-                  <input type="range" min="0.1" max="1.5" step="0.1" value={fdSettings.idealLength} onChange={e => setFdSettings({...fdSettings, idealLength: parseFloat(e.target.value)})} style={{width: '100%', cursor: 'pointer'}} />
-                </div>
+                <button onClick={runForceLayout} style={{...styles.btnPrimary, backgroundColor: '#6366f1', color: '#fff', marginTop: '5px'}}>▶️ Generate</button>
+                <button onClick={() => setForceAlgoMode('idle')} style={{...styles.btnAction, marginTop: '2px'}}>Cancel</button>
               </div>
+            ) : (
+              <div style={{display: 'flex', flexDirection: 'column', gap: '8px'}}>
+                <div style={{textAlign: 'center', fontSize: '12px', color: '#fff', marginBottom: '5px'}}>
+                  Iteration: {forceStep} / {Math.max(0, forceHistory.length - 1)}
+                </div>
+                <div style={{display: 'flex', gap: '5px'}}>
+                  <button onClick={() => setForceAlgoMode('running')} style={{...styles.btnAction, backgroundColor: forceAlgoMode==='running'?'#34c759':'#334155', color: '#fff', flex: 1}}>▶️ Play</button>
+                  <button onClick={() => setForceAlgoMode('paused')} style={{...styles.btnAction, backgroundColor: forceAlgoMode==='paused'?'#6366f1':'#334155', color: '#fff', flex: 1}}>⏸️ Pause</button>
+                </div>
+                <div style={{display: 'flex', gap: '5px'}}>
+                  <button onClick={() => setForceStep(Math.max(0, forceStep-1))} disabled={forceStep === 0} style={{...styles.btnAction, opacity: forceStep===0?0.5:1}}>⏮️ Prev</button>
+                  <button onClick={() => setForceStep(Math.min(forceHistory.length-1, forceStep+1))} disabled={forceStep === forceHistory.length-1} style={{...styles.btnAction, opacity: forceStep===forceHistory.length-1?0.5:1}}>Next ⏭️</button>
+                </div>
+                <button onClick={() => { setForceStep(Math.max(0, forceHistory.length-1)); setForceAlgoMode('finished'); }} style={styles.btnAction}>⏭️ Skip to End</button>
+                
+                <button onClick={() => { 
+                  if (forceHistory.length > 0) {
+                    setVertices(forceHistory[forceStep]); 
+                  }
+                  setForceAlgoMode('idle'); 
+                  setForceHistory([]); 
+                  setForceStep(0);
+                }} style={{...styles.btnAction, backgroundColor: '#ff3b30', borderColor: '#ff3b30', marginTop: '10px'}}>
+                  ⏹️ Exit Force Algo
+                </button>
+              </div>
+            )}
+          </div>
+        )}
 
-              <button 
-                style={{...styles.btnMagic, width: '100%', marginTop: '5px'}} 
-                onClick={() => setIsLayoutRunning(!isLayoutRunning)}
-              >
-                {isLayoutRunning ? '⏹️ Stop Algo' : '▶️ Run Algo'}
-              </button>
-              
-              <button 
-                style={{...styles.btnAction, backgroundColor: '#ff3b30', borderColor: '#ff3b30', marginTop: '10px'}} 
-                onClick={() => { setIsPhysicsOpen(false); setIsLayoutRunning(false); }}
-              >
-                ⏹️ Close Algo
-              </button>
-            </>
-          )}
-        </div>
-
-        {/* ALGORITHM CONTROLS */}
+        {/* BFS ALGORITHM CONTROLS */}
         <div style={styles.algoPanel}>
-          <h3 style={{margin: '0 0 10px 0', fontSize: '14px', color: '#0a84ff', textAlign: 'center'}}>BFS Visualization</h3>
+          <h3 style={{margin: '0 0 10px 0', fontSize: '15px', color: '#0a84ff', textAlign: 'center'}}>BFS Visualization</h3>
           {algoMode === 'idle' ? (
             <>
               <div style={{display: 'flex', gap: '10px', alignItems: 'center', marginBottom: '10px'}}>
@@ -994,7 +1030,7 @@ const GraphCanvas = () => {
                   style={{width: '50px', padding: '5px', borderRadius: '4px', border: '1px solid #475569', backgroundColor: '#0f172a', color: '#fff'}}
                 />
               </div>
-              <button onClick={runBFS} style={styles.btnPrimary} disabled={isPhysicsOpen}>▶️ Initialize BFS</button>
+              <button onClick={runBFS} style={styles.btnPrimary}>▶️ Initialize BFS</button>
             </>
           ) : (
             <div style={{display: 'flex', flexDirection: 'column', gap: '8px'}}>
@@ -1014,12 +1050,15 @@ const GraphCanvas = () => {
       </div>
 
       <div style={styles.mainArea}>
-        <h2 style={styles.title}>{algoMode === 'idle' ? "Graph Drawing Simulator" : "BFS Tree Generation"}</h2>
+        <h2 style={styles.title}>{algoMode === 'idle' ? (forceAlgoMode !== 'idle' ? "Force Layout Playground" : "Graph Drawing Simulator") : "BFS Tree Generation"}</h2>
         <p style={styles.subtitle}>
           {algoMode !== 'idle' ? "Algorithm Visualization Active. Interactive editing disabled." : (
+            forceAlgoMode !== 'idle' ? "Force simulation active. Adjust playback on the left." :
             <>
               {mode === 'draw' && "Tap space to draw vertex. Tap two sequentially for edge."}
-              {mode === 'deleteNode' && "Tap any vertex to permanently delete it."}
+              {mode === 'deleteNode' && "Tap any vertex to permanently delete it and its edges."}
+              {mode === 'deleteEdge' && "Tap directly on any line to cut that edge."}
+              {mode === 'editWeight' && "Tap directly on any edge's line to edit its weight."}
             </>
           )}
         </p>
@@ -1062,7 +1101,8 @@ const GraphCanvas = () => {
       </div>
 
       <div style={styles.rightCol}>
-        <div style={{ display: algoMode === 'idle' ? 'flex' : 'none', flexDirection: 'column', gap: '25px' }}>
+        
+        <div style={{ display: (algoMode === 'idle' && forceAlgoMode === 'idle') ? 'flex' : 'none', flexDirection: 'column', gap: '25px' }}>
           <div style={styles.panel}>
             <div style={styles.headerRow}>
               <div>
@@ -1099,7 +1139,7 @@ const GraphCanvas = () => {
           </div>
         </div>
 
-        {/* ORIGINAL GRAPH OVERLAY DURING ALGORITHM */}
+        {/* ORIGINAL GRAPH OVERLAY DURING BFS ALGORITHM*/}
         <div style={{ ...styles.panel, display: algoMode !== 'idle' ? 'flex' : 'none', flexDirection: 'column', height: '100%', padding: '15px' }}>
           <h3 style={{...styles.panelTitle, fontSize: '20px', marginBottom: '10px'}}>Original Graph Traversal</h3>
           <p style={{color: '#94a3b8', fontSize: '14px', margin: '0 0 15px 0'}}>Watch the algorithm evaluate every edge.</p>
@@ -1114,6 +1154,20 @@ const GraphCanvas = () => {
             <div style={{display: 'flex', alignItems: 'center', gap: '10px'}}><div style={{width: '16px', height: '4px', backgroundColor: '#64748b'}}></div> <strong>Unevaluated Edge.</strong></div>
           </div>
         </div>
+
+        {/* FORCE ALGO RIGHT PANEL */}
+        <div style={{ ...styles.panel, display: forceAlgoMode !== 'idle' ? 'flex' : 'none', flexDirection: 'column', height: '100%', padding: '25px', overflowY: 'auto' }}>
+            <h3 style={{...styles.panelTitle, fontSize: '20px', marginBottom: '15px'}}>Algorithm Reference</h3>
+            
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', alignItems: 'center', flex: 1 }}>
+                <img src="/F1.png" alt="Concept F1" style={{ width: '100%', borderRadius: '8px', border: '1px solid #334155' }} onError={(e) => { e.target.style.display='none'; e.target.nextSibling.style.display='block'; }} />
+                <p style={{ display: 'none', color: '#ff453a', fontSize: '12px', margin: 0 }}>F1 image not found</p>
+                
+                <img src="/F2.png" alt="Concept F2" style={{ width: '100%', borderRadius: '8px', border: '1px solid #334155' }} onError={(e) => { e.target.style.display='none'; e.target.nextSibling.style.display='block'; }} />
+                <p style={{ display: 'none', color: '#ff453a', fontSize: '12px', margin: 0 }}>F2 image not found</p>
+            </div>
+        </div>
+
       </div>
 
     </div>
