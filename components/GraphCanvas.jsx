@@ -521,7 +521,7 @@ const GraphCanvas = () => {
         </div>
       )}
 
-      <div style={styles.leftToolbar}>Graph_Input
+      <div style={styles.leftToolbar}>
         <div style={styles.toggleContainer}>
           <button style={styles.btnToggle(!isWeighted)} onClick={() => handleToggleWeighted(false)}>Unweighted</button>
           <button style={styles.btnToggle(isWeighted)} onClick={() => handleToggleWeighted(true)}>Weighted</button>
