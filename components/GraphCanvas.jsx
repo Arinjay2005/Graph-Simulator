@@ -26,8 +26,6 @@ import {
   ForceDirectedControls,
   ForceReferencePanel,
 } from './Force_Directed';
-import Graph_Input from './Graph_Input';
-
 const GraphCanvas = () => {
   const canvasRef = useRef(null);
   const rightCanvasRef = useRef(null);
@@ -589,19 +587,54 @@ const GraphCanvas = () => {
 
       <div style={styles.rightCol}>
         <div style={{ display: (algoMode === 'idle' && forceAlgoMode === 'idle') ? 'flex' : 'none', flexDirection: 'column', gap: '25px' }}>
-          <Graph_Input
-            matrixInput={matrixInput}
-            setMatrixInput={setMatrixInput}
-            listInput={listInput}
-            setListInput={setListInput}
-            isWeighted={isWeighted}
-            mappingText={vertices.length > 0 ? getMappingText() : ''}
-            onFileUpload={handleFileUpload}
-            onExport={handleExport}
-            onMatrixSubmit={handleMatrixSubmit}
-            onListSubmit={handleListSubmit}
-            styles={styles}
-          />
+          {/* --- MATRIX INPUT PANEL --- */}
+          <div style={styles.panel}>
+            <div style={styles.headerRow}>
+              <div>
+                <h3 style={styles.panelTitle}>Adjacency Matrix</h3>
+                {vertices.length > 0 && (
+                  <span style={styles.mappingLabel}>
+                    Rows/Cols map to IDs: <strong>{getMappingText()}</strong>
+                  </span>
+                )}
+              </div>
+              <div style={styles.fileBtnCluster}>
+                <input type="file" id="matrix-upload" accept=".txt" onChange={(e) => handleFileUpload(e, setMatrixInput)} style={styles.hiddenInput} />
+                <label htmlFor="matrix-upload" style={styles.btnFile}>📁 Upload</label>
+                <button onClick={() => handleExport(matrixInput, 'adjacency_matrix.txt')} style={styles.btnFile}>💾 Download</button>
+              </div>
+            </div>
+            <textarea
+              rows={6}
+              style={styles.textArea}
+              value={matrixInput}
+              onChange={(e) => setMatrixInput(e.target.value)}
+              placeholder={isWeighted ? '0 5 12\n5 0 0\n12 0 0' : '0 1 1\n1 0 0\n1 0 0'}
+            />
+            <button onClick={handleMatrixSubmit} style={styles.btnPrimary}>Draw from Matrix</button>
+          </div>
+
+          {/* --- LIST INPUT PANEL --- */}
+          <div style={styles.panel}>
+            <div style={styles.headerRow}>
+              <div>
+                <h3 style={styles.panelTitle}>Adjacency List</h3>
+              </div>
+              <div style={styles.fileBtnCluster}>
+                <input type="file" id="list-upload" accept=".txt" onChange={(e) => handleFileUpload(e, setListInput)} style={styles.hiddenInput} />
+                <label htmlFor="list-upload" style={styles.btnFile}>📁 Upload</label>
+                <button onClick={() => handleExport(listInput, 'adjacency_list.txt')} style={styles.btnFile}>💾 Download</button>
+              </div>
+            </div>
+            <textarea
+              rows={6}
+              style={styles.textArea}
+              value={listInput}
+              onChange={(e) => setListInput(e.target.value)}
+              placeholder={isWeighted ? '1: 2(5), 3(12)\n2: 1(5)\n3: 1(12)' : '1: 2, 3\n2: 1\n3: 1'}
+            />
+            <button onClick={handleListSubmit} style={styles.btnPrimary}>Draw from List</button>
+          </div>
         </div>
 
         <div style={{ display: algoMode !== 'idle' ? 'flex' : 'none', flexDirection: 'column', height: '100%' }}>
