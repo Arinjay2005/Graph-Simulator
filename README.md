@@ -35,7 +35,7 @@ A highly interactive, full-stack React / Next.js application designed to visuali
 
 ### ➡️ Rectangular Refinement (Tamassia's Algorithm)
 * **Face Decomposition & Turn Labeling:** Traces boundary cycles for inner faces and the outer face ($f_0$), classifying corner turn angles ($+1$ convex, $-1$ reflex, $0$ collinear) to identify faces needing refinement.
-* **Opposite Wall ($\text{front}(e)$) & Ray Projection:** For each reflex corner ($270^\circ$), walks the boundary until accumulated turns $\sum \text{turn}(e) = +1$ to locate the opposite wall, casting an orthogonal ray to insert a dummy T-junction vertex and extension edge.
+* **Opposite Wall (front(e)) & Ray Projection:** For each reflex corner ($270^\circ$), walks the boundary until accumulated turns $\sum \text{turn}(e) = +1$ to locate the opposite wall, casting an orthogonal ray to insert a dummy T-junction vertex and extension edge.
 * **Tamassia Shifting Approach:** If a projected ray lands within $40\text{px}$ of a wall endpoint, safely translates the far-side subgraph along the wall axis to extend $\text{front}(e)$ without breaking planarity.
 * **Outer Face Bounding Rectangle:** Surrounds the graph with an adaptive bounding box to handle outer-face projections where $\text{front}(e)$ is undefined, converting the boundary into real border edges.
 * **Dual-View Playback & Inspection:** Step through the refinement animation alongside the original graph, inspect failure diagnostics with highlighted error edges if refinement is blocked, and copy the refined graph back to the canvas.
