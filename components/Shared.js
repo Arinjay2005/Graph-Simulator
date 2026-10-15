@@ -1,16 +1,54 @@
-// ================================================================
 // CONSTANTS
-// ================================================================
 export const VERTEX_RADIUS = 18;
 export const CANVAS_WIDTH = 800;
 export const CANVAS_HEIGHT = 600;
+export const GRID_SIZE = 40;
 
-// ================================================================
-// GEOMETRY — hit-testing helpers
-// ================================================================
+export function getGraphCanvasDimensions(vertices, edges, state) {
+  if (!state || !state.fitCanvas) {
+    return { width: CANVAS_WIDTH, height: CANVAS_HEIGHT, offsetX: 0, offsetY: 0 };
+  }
 
-// Shortest distance from point (px, py) to the segment (x1,y1)-(x2,y2).`
-// Used to detect clicks on edges (delete-edge / edit-weight modes).
+  const positions = state && state.pointPositions ? state.pointPositions : {};
+  const points = vertices.map((vertex) => positions[String(vertex.id)] || vertex);
+  Object.values(positions).forEach((point) => points.push(point));
+  edges.forEach((edge, edgeIdx) => {
+    (edge.bends || []).forEach((bend, bendIdx) => {
+      points.push(positions[`d${edgeIdx}_${bendIdx}`] || bend);
+    });
+  });
+
+  if (state) {
+    (state.dummyVertices || []).forEach((point) => points.push(point));
+    (state.extendEdges || []).forEach((edge) => points.push(edge.from, edge.to));
+    (state.borderEdges || []).forEach((edge) => points.push(edge.from, edge.to));
+    if (state.showBoundingBox) {
+      (state.boundingBoxSegments || []).forEach((segment) => points.push(segment.a, segment.b));
+    }
+  }
+
+  if (points.length === 0) {
+    return { width: CANVAS_WIDTH, height: CANVAS_HEIGHT, offsetX: 0, offsetY: 0 };
+  }
+
+  const minX = Math.min(...points.map((point) => point.x));
+  const maxX = Math.max(...points.map((point) => point.x));
+  const minY = Math.min(...points.map((point) => point.y));
+  const maxY = Math.max(...points.map((point) => point.y));
+  const margin = GRID_SIZE;
+  const contentWidth = maxX - minX + margin * 2;
+  const contentHeight = maxY - minY + margin * 2;
+  const width = Math.ceil(Math.max(CANVAS_WIDTH, contentWidth, contentHeight * (4 / 3)) / 4) * 4;
+  const height = width * (3 / 4);
+
+  return {
+    width,
+    height,
+    offsetX: margin + (width - contentWidth) / 2 - minX,
+    offsetY: margin + (height - contentHeight) / 2 - minY,
+  };
+}
+
 export function pointToSegmentDistance(px, py, x1, y1, x2, y2) {
   const l2 = Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2);
   if (l2 === 0) return Math.sqrt(Math.pow(px - x1, 2) + Math.pow(py - y1, 2));
@@ -21,13 +59,175 @@ export function pointToSegmentDistance(px, py, x1, y1, x2, y2) {
   return Math.sqrt(Math.pow(px - projX, 2) + Math.pow(py - projY, 2));
 }
 
-// ================================================================
+// Faint dotted/dashed grid background for Orthogonal Mode.
+export function drawGrid(ctx, width, height, gridSize = GRID_SIZE, bounds = null, labelScale = 1) {
+  ctx.save();
+  ctx.strokeStyle = 'rgba(148, 163, 184, 0.25)';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([4, 4]);
+
+  const minX = bounds ? Math.floor(bounds.minX / gridSize) * gridSize : 0;
+  const maxX = bounds ? Math.ceil(bounds.maxX / gridSize) * gridSize : width;
+  const minY = bounds ? Math.floor(bounds.minY / gridSize) * gridSize : 0;
+  const maxY = bounds ? Math.ceil(bounds.maxY / gridSize) * gridSize : height;
+
+  const viewLeft = bounds ? bounds.minX : 0;
+  const viewTop = bounds ? bounds.minY : 0;
+
+  for (let x = minX; x <= maxX; x += gridSize) {
+    ctx.beginPath();
+    ctx.moveTo(x, minY);
+    ctx.lineTo(x, maxY);
+    ctx.stroke();
+  }
+  for (let y = minY; y <= maxY; y += gridSize) {
+    ctx.beginPath();
+    ctx.moveTo(minX, y);
+    ctx.lineTo(maxX, y);
+    ctx.stroke();
+  }
+
+  ctx.setLineDash([]);
+  ctx.fillStyle = 'rgba(71, 85, 105, 0.9)';
+  ctx.font = `${11 * labelScale}px "Segoe UI", sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  
+  const xTickCount = Math.floor((maxX - minX) / gridSize) + 1;
+  for (let tick = 0; tick < xTickCount; tick++) {
+    const x = minX + tick * gridSize;
+    ctx.textAlign = tick === 0 ? 'left' : tick === xTickCount - 1 ? 'right' : 'center';
+    ctx.fillText(`X ${x}`, tick === 0 ? x + 3 * labelScale : tick === xTickCount - 1 ? x - 3 * labelScale : x, viewTop + 5 * labelScale);
+  }
+  
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  
+  const yTickCount = Math.floor((maxY - minY) / gridSize) + 1;
+  for (let tick = 0; tick < yTickCount; tick++) {
+    const y = minY + tick * gridSize;
+    const labelY = tick === 0 ? y + 7 * labelScale : tick === yTickCount - 1 ? y - 7 * labelScale : y;
+    ctx.fillText(`Y ${y}`, viewLeft + 5 * labelScale, labelY);
+  }
+
+  ctx.setLineDash([]);
+  ctx.fillStyle = 'rgba(148, 163, 184, 0.45)';
+  for (let x = minX; x <= maxX; x += gridSize) {
+    for (let y = minY; y <= maxY; y += gridSize) {
+      ctx.beginPath();
+      ctx.arc(x, y, 1.6, 0, 2 * Math.PI);
+      ctx.fill();
+    }
+  }
+  ctx.restore();
+}
+
+// Grid Point Highlighter
+export function drawGridHover(ctx, hover, bounds, labelScale = 1) {
+  if (!hover || !bounds) return;
+  const accent = '#0a84ff';
+  ctx.save();
+
+  ctx.setLineDash([6 * labelScale, 4 * labelScale]);
+  ctx.strokeStyle = 'rgba(10, 132, 255, 0.55)';
+  ctx.lineWidth = 1.5 * labelScale;
+  ctx.beginPath();
+  ctx.moveTo(hover.x, bounds.minY);
+  ctx.lineTo(hover.x, bounds.maxY);
+  ctx.moveTo(bounds.minX, hover.y);
+  ctx.lineTo(bounds.maxX, hover.y);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  ctx.beginPath();
+  ctx.arc(hover.x, hover.y, 6 * labelScale, 0, 2 * Math.PI);
+  ctx.fillStyle = 'rgba(10, 132, 255, 0.25)';
+  ctx.fill();
+  ctx.lineWidth = 2 * labelScale;
+  ctx.strokeStyle = accent;
+  ctx.stroke();
+
+  const pill = (x, y, w, h, text) => {
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(x, y, w, h, 4 * labelScale);
+    else ctx.rect(x, y, w, h);
+    ctx.fillStyle = accent;
+    ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, x + w / 2, y + h / 2 + labelScale * 0.5);
+  };
+
+  ctx.font = `bold ${12 * labelScale}px "Segoe UI", sans-serif`;
+  const h = 18 * labelScale;
+  const pad = 10 * labelScale;
+  const xText = `X ${hover.x}`;
+  const yText = `Y ${hover.y}`;
+  const xw = ctx.measureText(xText).width + pad;
+  const yw = ctx.measureText(yText).width + pad;
+  const xLeft = Math.max(bounds.minX + 2 * labelScale, Math.min(bounds.maxX - xw - 2 * labelScale, hover.x - xw / 2));
+  const yTop = Math.max(bounds.minY + h + 4 * labelScale, Math.min(bounds.maxY - h - 2 * labelScale, hover.y - h / 2));
+  pill(xLeft, bounds.minY + 2 * labelScale, xw, h, xText);
+  pill(bounds.minX + 2 * labelScale, yTop, yw, h, yText);
+
+  ctx.restore();
+}
+
+// Rounds a raw canvas coordinate to the nearest grid intersection.
+export function snapToGrid(x, y, gridSize = GRID_SIZE) {
+  return {
+    x: Math.round(x / gridSize) * gridSize,
+    y: Math.round(y / gridSize) * gridSize,
+  };
+}
+
+// Orientation of the turn +1 = counter-clockwise, -1 = clockwise, 0 = collinear.
+export function orientation(p, q, r) {
+  const val = (q.x - p.x) * (r.y - q.y) - (q.y - p.y) * (r.x - q.x);
+  if (Math.abs(val) < 1e-9) return 0;
+  return val > 0 ? 1 : -1;
+}
+
+function onSegmentCollinear(p, q, r) {
+  return (
+    q.x <= Math.max(p.x, r.x) + 1e-6 &&
+    q.x >= Math.min(p.x, r.x) - 1e-6 &&
+    q.y <= Math.max(p.y, r.y) + 1e-6 &&
+    q.y >= Math.min(p.y, r.y) - 1e-6
+  );
+}
+
+const samePoint = (a, b) => Math.abs(a.x - b.x) < 1e-6 && Math.abs(a.y - b.y) < 1e-6;
+
+// True if `point` lies essentially ON the segment (p1,p2)
+export function isPointOnSegment(point, p1, p2, epsilon = 0.75) {
+  return pointToSegmentDistance(point.x, point.y, p1.x, p1.y, p2.x, p2.y) <= epsilon;
+}
+
+export function doLineSegmentsIntersect(p1, q1, p2, q2) {
+  const sharesEndpoint =
+    samePoint(p1, p2) || samePoint(p1, q2) || samePoint(q1, p2) || samePoint(q1, q2);
+
+  const o1 = orientation(p1, q1, p2);
+  const o2 = orientation(p1, q1, q2);
+  const o3 = orientation(p2, q2, p1);
+  const o4 = orientation(p2, q2, q1);
+
+  if (o1 !== o2 && o3 !== o4) {
+    return !sharesEndpoint;
+  }
+
+  if (o1 === 0 && onSegmentCollinear(p1, p2, q1)) return !sharesEndpoint;
+  if (o2 === 0 && onSegmentCollinear(p1, q2, q1)) return !sharesEndpoint;
+  if (o3 === 0 && onSegmentCollinear(p2, p1, q2)) return !sharesEndpoint;
+  if (o4 === 0 && onSegmentCollinear(p2, q1, q2)) return !sharesEndpoint;
+
+  return false;
+}
+
 // GRAPH PARSING — text <-> graph conversions
 // (matrix / adjacency-list input parsing + export text builders)
-// ================================================================
-
-// Lays vertices out evenly around a circle. Used whenever a graph is
-// (re)generated from matrix/list input, since raw input has no coordinates.
 export function generateCircularLayout(nodeIds, width = CANVAS_WIDTH, height = CANVAS_HEIGHT) {
   const newVertices = [];
   const numVertices = nodeIds.length;
@@ -45,9 +245,6 @@ export function generateCircularLayout(nodeIds, width = CANVAS_WIDTH, height = C
   return newVertices;
 }
 
-// Parses an NxN adjacency-matrix text block. Throws Error with a
-// human-readable message on any validation failure.
-// Returns { nodeIds, edges }.
 export function parseMatrixInput(matrixInput) {
   if (!matrixInput.trim()) throw new Error('Matrix is empty.');
   const rows = matrixInput
@@ -91,9 +288,6 @@ export function parseMatrixInput(matrixInput) {
   return { nodeIds, edges };
 }
 
-// Parses "id: target(weight), target(weight)" style adjacency-list text.
-// Throws Error with a human-readable message on any validation failure.
-// Returns { nodeIds, edges }.
 export function parseListInput(listInput) {
   if (!listInput.trim()) throw new Error('List is empty.');
   const lines = listInput.trim().split('\n').filter((line) => line.trim() !== '');
@@ -157,8 +351,6 @@ export function parseListInput(listInput) {
   return { nodeIds, edges };
 }
 
-// Builds "id: target(weight), ..." text for a given node/edge set.
-// Used both for the live matrix/list sync and for BFS-tree export.
 export function buildAdjacencyListText(nodeIds, edges, isWeighted) {
   let listStr = '';
   nodeIds.forEach((id) => {
@@ -178,8 +370,6 @@ export function buildAdjacencyListText(nodeIds, edges, isWeighted) {
   return listStr.trim();
 }
 
-// Builds NxN adjacency-matrix text for a given node/edge set.
-// Used both for the live matrix/list sync and for BFS-tree export.
 export function buildAdjacencyMatrixText(nodeIds, edges, isWeighted) {
   const idToIndex = {};
   nodeIds.forEach((id, idx) => { idToIndex[id] = idx; });
@@ -198,12 +388,6 @@ export function buildAdjacencyMatrixText(nodeIds, edges, isWeighted) {
 
   return matrix.map((row) => row.join(' ')).join('\n');
 }
-
-// ================================================================
-// CANVAS DRAWING PRIMITIVES
-// (low-level shapes; algorithm-specific coloring lives in bfs.js /
-// force-directed.js, which call into these)
-// ================================================================
 
 export function drawEdgeLine(ctx, x1, y1, x2, y2, color, width) {
   ctx.beginPath();
@@ -244,9 +428,6 @@ export function drawVertexShape(ctx, x, y, id, fillColor, highlighted) {
   ctx.fillText(id, x, y);
 }
 
-// Generic "plain" graph render — used for the default draw/edit view and
-// for the force-directed simulation (which has no special node coloring,
-// just different positions per frame).
 export function drawGraph(ctx, vertices, edges, { mode, isWeighted, selectedVertexId } = {}) {
   edges.forEach((edge) => {
     const source = vertices.find((v) => v.id === edge.source);
@@ -254,11 +435,25 @@ export function drawGraph(ctx, vertices, edges, { mode, isWeighted, selectedVert
     if (!source || !target) return;
 
     const edgeColor = mode === 'deleteEdge' ? '#ff453a' : mode === 'editWeight' ? '#ff9f0a' : '#888';
-    drawEdgeLine(ctx, source.x, source.y, target.x, target.y, edgeColor, 3);
+    const chain = [source, ...(edge.bends || []), target];
+    for (let i = 0; i < chain.length - 1; i++) {
+      drawEdgeLine(ctx, chain[i].x, chain[i].y, chain[i + 1].x, chain[i + 1].y, edgeColor, 3);
+    }
+
+    if (edge.bends && edge.bends.length > 0) {
+      edge.bends.forEach((b) => {
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, 4, 0, 2 * Math.PI);
+        ctx.fillStyle = edgeColor;
+        ctx.fill();
+      });
+    }
 
     if (isWeighted && edge.weight !== undefined) {
-      const midX = (source.x + target.x) / 2;
-      const midY = (source.y + target.y) / 2;
+      const mid = chain[Math.floor((chain.length - 1) / 2)];
+      const midNext = chain[Math.floor((chain.length - 1) / 2) + 1];
+      const midX = (mid.x + midNext.x) / 2;
+      const midY = (mid.y + midNext.y) / 2;
       drawWeightLabel(ctx, midX, midY, edge.weight, '#0f172a', '#34d399');
     }
   });
